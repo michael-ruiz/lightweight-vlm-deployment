@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Local env files
+.env
+.env.*
+.venv/
+venv/
+
+# Benchmark outputs
+benchmark_*.json
+
+# Dataset
+data/
+
+# Caches
+.pytest_cache/
+.mypy_cache/
+.cache/
+.ipynb_checkpoints/

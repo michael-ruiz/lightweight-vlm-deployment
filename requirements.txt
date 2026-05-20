@@ -1,0 +1,14 @@
+torch
+torchvision
+transformers
+accelerate
+bitsandbytes
+pillow
+opencv-python
+numpy
+scikit-learn
+pynvml
+tqdm
+safetensors
+qwen-vl-utils
+
