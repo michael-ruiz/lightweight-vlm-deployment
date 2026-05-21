@@ -48,6 +48,7 @@ class GenerationResult:
     confidence: float = 0.0
     runner_up_label: str = ""
     runner_up_confidence: float = 0.0
+    inference_seconds: float = 0.0
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -139,6 +140,7 @@ class VLMEngine:
                 confidence=confidence,
                 runner_up_label=runner_up,
                 runner_up_confidence=runner_up_conf,
+                inference_seconds=timing.total_seconds,
             )
         except torch.cuda.OutOfMemoryError as exc:
             self._clear_cuda_cache()

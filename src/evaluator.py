@@ -99,6 +99,7 @@ class FramePrediction:
     raw_text: str
     ttft_seconds: float | None
     tokens_per_second: float
+    inference_seconds: float = 0.0
     confidence: float = 0.0
     runner_up_label: str = ""
     runner_up_confidence: float = 0.0
@@ -200,6 +201,7 @@ class BenchmarkEvaluator:
         raw_text_parts: list[str] = []
         ttfts: list[float] = []
         tps_values: list[float] = []
+        inference_times: list[float] = []
         confidences: list[float] = []
         errors: list[str] = []
 
@@ -212,6 +214,7 @@ class BenchmarkEvaluator:
                     raw_text=result.text,
                     ttft_seconds=result.timing.ttft_seconds,
                     tokens_per_second=result.timing.tokens_per_second,
+                    inference_seconds=result.inference_seconds,
                     confidence=result.confidence,
                     runner_up_label=result.runner_up_label,
                     runner_up_confidence=result.runner_up_confidence,
@@ -224,6 +227,8 @@ class BenchmarkEvaluator:
                 ttfts.append(result.timing.ttft_seconds)
             if result.timing.tokens_per_second > 0.0:
                 tps_values.append(result.timing.tokens_per_second)
+            if result.inference_seconds > 0.0:
+                inference_times.append(result.inference_seconds)
             if result.confidence > 0.0:
                 confidences.append(result.confidence)
             if result.error is not None:
@@ -308,11 +313,22 @@ class BenchmarkEvaluator:
         )
 
         all_confidences = [r.avg_confidence for r in records if r.avg_confidence > 0.0]
+        # Collect per-frame inference times from all records.
+        all_inference_times = [
+            fp.inference_seconds
+            for r in records
+            for fp in r.frame_predictions
+            if fp.inference_seconds > 0.0
+        ]
+        avg_inference = float(mean(all_inference_times)) if all_inference_times else None
+        avg_fps = float(1.0 / avg_inference) if avg_inference else None
 
         return {
             "overall_accuracy": float(overall_accuracy),
             "macro_precision": float(macro_precision),
             "average_ttft_seconds": float(mean(ttfts)) if ttfts else None,
+            "average_inference_seconds": avg_inference,
+            "average_fps": avg_fps,
             "average_tps": float(mean(tps_values)) if tps_values else 0.0,
             "average_confidence": float(mean(all_confidences)) if all_confidences else 0.0,
             "peak_vram_mb": float(self.monitor.peak_vram_mb),
