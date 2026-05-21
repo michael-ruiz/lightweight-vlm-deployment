@@ -115,6 +115,27 @@ class HardwareMonitor:
         """Create a timer for one generation call."""
         return InferenceTimer()
 
+    @staticmethod
+    def get_device_info() -> dict:
+        """Return a snapshot of CUDA/GPU availability for report self-auditing."""
+        cuda_available = torch.cuda.is_available()
+        info: dict = {"cuda_available": cuda_available}
+        if cuda_available:
+            try:
+                props = torch.cuda.get_device_properties(0)
+                info["gpu_name"] = props.name
+                info["gpu_total_vram_mb"] = round(props.total_memory / BYTES_PER_MIB, 1)
+                info["cuda_capability"] = f"{props.major}.{props.minor}"
+            except RuntimeError:
+                pass
+            try:
+                info["cuda_version"] = torch.version.cuda  # type: ignore[attr-defined]
+            except AttributeError:
+                pass
+        else:
+            info["gpu_name"] = None
+        return info
+
     def update_peak_vram(self) -> None:
         """Synchronously sample VRAM once and update the peak."""
         usage_mb = self._current_vram_mb()

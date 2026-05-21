@@ -46,21 +46,26 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 
 
 @dataclass(frozen=True, slots=True)
-class FrameSample:
-    """One preprocessed image frame and its inferred ground-truth label."""
+class SegmentSpec:
+    """Metadata for one benchmarkable sample before decoding pixels."""
 
-    image: Image.Image
+    path: Path
+    label: str
+    frame_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SegmentSample:
+    """One benchmarkable sample with one or more decoded frames."""
+
+    images: tuple[Image.Image, ...]
     label: str
     path: Path
+    frame_indices: tuple[int, ...]
 
 
 class DriveAndActLoader:
-    """Stream Drive&Act samples from extracted images or annotated MP4 files.
-
-    Two layouts are supported:
-    - A simple extracted-frame tree of .jpg/.jpeg/.png files with labels in the path.
-    - The official Drive&Act-style tree with activities_3s CSV annotations and MP4 files.
-    """
+    """Stream Drive&Act samples from extracted images or annotated MP4 files."""
 
     def __init__(
         self,
@@ -90,58 +95,69 @@ class DriveAndActLoader:
         self.driveact_root = self._find_driveact_root()
         self.annotation_csv = self._find_annotation_csv() if self.driveact_root else None
 
-    def __iter__(self) -> Iterator[FrameSample]:
-        """Yield labeled samples, skipping unknown labels and unreadable media."""
+    def __iter__(self) -> Iterator[SegmentSample]:
+        for spec in self.get_segment_specs():
+            yield self.load_segment(spec)
+
+    def __len__(self) -> int:
+        return len(self.get_segment_specs())
+
+    def get_segment_specs(self) -> list[SegmentSpec]:
+        """Return benchmarkable sample metadata without decoding frames."""
         if self.annotation_csv is not None:
-            yield from self._iter_driveact_video_samples()
+            return list(self._iter_driveact_segment_specs())
+        return list(self._iter_image_segment_specs())
+
+    def load_segment(self, spec: SegmentSpec) -> SegmentSample:
+        """Decode all frames for a single sample spec."""
+        if spec.path.suffix.lower() in IMAGE_EXTENSIONS:
+            image = self._load_image(spec.path)
+            return SegmentSample(images=(image,), label=spec.label, path=spec.path, frame_indices=spec.frame_indices)
+
+        capture = cv2.VideoCapture(str(spec.path))
+        if not capture.isOpened():
+            raise OSError(f"Could not open video: {spec.path}")
+        try:
+            images: list[Image.Image] = []
+            for frame_index in spec.frame_indices:
+                image = self._read_video_frame(capture, frame_index)
+                if image is None:
+                    raise OSError(f"Could not decode frame {frame_index} from {spec.path}")
+                images.append(image)
+        finally:
+            capture.release()
+
+        return SegmentSample(images=tuple(images), label=spec.label, path=spec.path, frame_indices=spec.frame_indices)
+
+    def _iter_driveact_segment_specs(self) -> Iterator[SegmentSpec]:
+        if self.driveact_root is None or self.annotation_csv is None:
             return
 
+        for row in self._iter_mapped_annotation_rows():
+            label = self._map_activity(row["activity"])
+            if label is None:
+                continue
+
+            video_path = self.driveact_root / self.camera_view / f"{row['file_id']}.mp4"
+            if not video_path.exists():
+                LOGGER.warning("Skipping annotation with missing video: %s", video_path)
+                continue
+
+            frame_start = int(row["frame_start"])
+            frame_end = int(row["frame_end"])
+            yield SegmentSpec(
+                path=video_path,
+                label=label,
+                frame_indices=self._sample_frame_indices(frame_start, frame_end, self.frames_per_segment),
+            )
+
+    def _iter_image_segment_specs(self) -> Iterator[SegmentSpec]:
         for image_path in self._iter_image_paths():
             label = self._infer_label(image_path)
             if label is None:
                 LOGGER.warning("Skipping frame with unknown label: %s", image_path)
                 continue
-            try:
-                image = self._load_image(image_path)
-            except OSError as exc:
-                LOGGER.warning("Skipping unreadable image %s: %s", image_path, exc)
-                continue
-            yield FrameSample(image=image, label=label, path=image_path)
-
-    def __len__(self) -> int:
-        """Return the number of mapped annotation samples or image files."""
-        if self.annotation_csv is not None:
-            return sum(1 for _ in self._iter_mapped_annotation_rows()) * self.frames_per_segment
-        return sum(1 for _ in self._iter_image_paths())
-
-    def _iter_driveact_video_samples(self) -> Iterator[FrameSample]:
-        if self.driveact_root is None or self.annotation_csv is None:
-            return
-
-        captures: dict[Path, cv2.VideoCapture] = {}
-        try:
-            for row in self._iter_mapped_annotation_rows():
-                label = self._map_activity(row["activity"])
-                if label is None:
-                    continue
-
-                video_path = self.driveact_root / self.camera_view / f"{row['file_id']}.mp4"
-                if not video_path.exists():
-                    LOGGER.warning("Skipping annotation with missing video: %s", video_path)
-                    continue
-
-                frame_start = int(row["frame_start"])
-                frame_end = int(row["frame_end"])
-                for frame_index in self._sample_frame_indices(frame_start, frame_end, self.frames_per_segment):
-                    image = self._read_video_frame(captures, video_path, frame_index)
-                    if image is None:
-                        LOGGER.warning("Skipping unreadable frame %s from %s", frame_index, video_path)
-                        continue
-                    virtual_path = Path(f"{video_path}#frame={frame_index}")
-                    yield FrameSample(image=image, label=label, path=virtual_path)
-        finally:
-            for capture in captures.values():
-                capture.release()
+            yield SegmentSpec(path=image_path, label=label, frame_indices=(0,))
 
     def _iter_mapped_annotation_rows(self) -> Iterator[dict[str, str]]:
         if self.annotation_csv is None:
@@ -202,19 +218,7 @@ class DriveAndActLoader:
             return label
         return None
 
-    def _read_video_frame(
-        self,
-        captures: dict[Path, cv2.VideoCapture],
-        video_path: Path,
-        frame_index: int,
-    ) -> Image.Image | None:
-        capture = captures.get(video_path)
-        if capture is None:
-            capture = cv2.VideoCapture(str(video_path))
-            if not capture.isOpened():
-                return None
-            captures[video_path] = capture
-
+    def _read_video_frame(self, capture: cv2.VideoCapture, frame_index: int) -> Image.Image | None:
         for candidate_index in self._fallback_frame_indices(frame_index):
             capture.set(cv2.CAP_PROP_POS_FRAMES, candidate_index)
             ok, frame_bgr = capture.read()
@@ -255,6 +259,7 @@ __all__ = [
     "CANONICAL_LABELS",
     "DRIVEACT_ACTIVITY_TO_LABEL",
     "DriveAndActLoader",
-    "FrameSample",
+    "SegmentSample",
+    "SegmentSpec",
     "pil_to_numpy",
 ]
