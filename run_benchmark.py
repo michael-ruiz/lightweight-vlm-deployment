@@ -35,6 +35,29 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--prompt", default=None, help="Override the classifier prompt.")
     parser.add_argument("--candidate-labels", nargs='+', default=None, help="Override candidate labels used for normalization and metrics.")
+    parser.add_argument(
+        "--confidence-threshold",
+        type=float,
+        default=1.0,
+        help=(
+            "When a top-label logit confidence is below this threshold and the runner-up "
+            "matches a configured fallback pair, the runner-up label is used instead. "
+            "Default 1.0 disables the fallback. Recommended: 0.80."
+        ),
+    )
+    parser.add_argument(
+        "--confidence-fallback-pair",
+        nargs=2,
+        action="append",
+        metavar=("TRIGGER", "FALLBACK"),
+        default=None,
+        dest="confidence_fallback_pairs",
+        help=(
+            "If the top prediction is TRIGGER with confidence below --confidence-threshold "
+            "and the runner-up is FALLBACK, swap to FALLBACK. "
+            "Can be specified multiple times. Example: --confidence-fallback-pair Driving Reaching"
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
 
@@ -56,6 +79,10 @@ def main() -> None:
     labels = tuple(args.candidate_labels) if args.candidate_labels is not None else tuple(profile_labels)
     if not labels:
         labels = CANONICAL_LABELS
+    confidence_fallback: dict[str, str] = {
+        trigger: fallback
+        for trigger, fallback in (args.confidence_fallback_pairs or [])
+    }
     evaluator = BenchmarkEvaluator(
         dataset_root=args.dataset_root,
         model_id=args.model_id,
@@ -67,6 +94,8 @@ def main() -> None:
         frames_per_segment=args.frames_per_segment,
         subset_mode=args.subset_mode,
         random_seed=args.random_seed,
+        confidence_threshold=args.confidence_threshold,
+        confidence_fallback=confidence_fallback or None,
     )
     try:
         report = evaluator.run()
@@ -75,6 +104,7 @@ def main() -> None:
 
     print(f"Accuracy: {report['overall_accuracy']:.4f}")
     print(f"Macro precision: {report['macro_precision']:.4f}")
+    print(f"Avg confidence: {report['average_confidence']:.4f}")
     print(f"Average TTFT: {report['average_ttft_seconds']}")
     print(f"Average TPS: {report['average_tps']:.4f}")
     print(f"Peak VRAM MB: {report['peak_vram_mb']:.2f}")

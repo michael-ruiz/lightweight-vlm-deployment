@@ -99,6 +99,9 @@ class FramePrediction:
     raw_text: str
     ttft_seconds: float | None
     tokens_per_second: float
+    confidence: float = 0.0
+    runner_up_label: str = ""
+    runner_up_confidence: float = 0.0
     error: str | None = None
 
 
@@ -114,6 +117,7 @@ class PredictionRecord:
     tokens_per_second: float
     frame_indices: tuple[int, ...]
     frame_predictions: tuple[FramePrediction, ...]
+    avg_confidence: float = 0.0
     error: str | None = None
 
 
@@ -132,6 +136,8 @@ class BenchmarkEvaluator:
         frames_per_segment: int = 1,
         subset_mode: str = "sequential",
         random_seed: int = 7,
+        confidence_threshold: float = 1.0,
+        confidence_fallback: dict[str, str] | None = None,
     ) -> None:
         self.dataset_root = Path(dataset_root)
         self.model_id = model_id
@@ -143,6 +149,8 @@ class BenchmarkEvaluator:
         self.frames_per_segment = max(1, frames_per_segment)
         self.subset_mode = subset_mode
         self.random_seed = random_seed
+        self.confidence_threshold = confidence_threshold
+        self.confidence_fallback: dict[str, str] = confidence_fallback or {}
         self.monitor = HardwareMonitor()
 
     def run(self) -> dict[str, Any]:
@@ -161,7 +169,13 @@ class BenchmarkEvaluator:
             self._write_report(report)
             return report
 
-        engine = VLMEngine(model_id=self.model_id, monitor=self.monitor, labels=self.labels)
+        engine = VLMEngine(
+            model_id=self.model_id,
+            monitor=self.monitor,
+            labels=self.labels,
+            confidence_threshold=self.confidence_threshold,
+            confidence_fallback=self.confidence_fallback,
+        )
         records: list[PredictionRecord] = []
         errors = 0
 
@@ -186,6 +200,7 @@ class BenchmarkEvaluator:
         raw_text_parts: list[str] = []
         ttfts: list[float] = []
         tps_values: list[float] = []
+        confidences: list[float] = []
         errors: list[str] = []
 
         for frame_index, image in zip(sample.frame_indices, sample.images):
@@ -197,6 +212,9 @@ class BenchmarkEvaluator:
                     raw_text=result.text,
                     ttft_seconds=result.timing.ttft_seconds,
                     tokens_per_second=result.timing.tokens_per_second,
+                    confidence=result.confidence,
+                    runner_up_label=result.runner_up_label,
+                    runner_up_confidence=result.runner_up_confidence,
                     error=result.error,
                 )
             )
@@ -206,6 +224,8 @@ class BenchmarkEvaluator:
                 ttfts.append(result.timing.ttft_seconds)
             if result.timing.tokens_per_second > 0.0:
                 tps_values.append(result.timing.tokens_per_second)
+            if result.confidence > 0.0:
+                confidences.append(result.confidence)
             if result.error is not None:
                 errors.append(result.error)
 
@@ -218,6 +238,7 @@ class BenchmarkEvaluator:
             tokens_per_second=float(mean(tps_values)) if tps_values else 0.0,
             frame_indices=sample.frame_indices,
             frame_predictions=tuple(frame_predictions),
+            avg_confidence=float(mean(confidences)) if confidences else 0.0,
             error="; ".join(errors) if errors else None,
         )
 
@@ -286,11 +307,14 @@ class BenchmarkEvaluator:
             else 0.0
         )
 
+        all_confidences = [r.avg_confidence for r in records if r.avg_confidence > 0.0]
+
         return {
             "overall_accuracy": float(overall_accuracy),
             "macro_precision": float(macro_precision),
             "average_ttft_seconds": float(mean(ttfts)) if ttfts else None,
             "average_tps": float(mean(tps_values)) if tps_values else 0.0,
+            "average_confidence": float(mean(all_confidences)) if all_confidences else 0.0,
             "peak_vram_mb": float(self.monitor.peak_vram_mb),
             "device_info": self.monitor.get_device_info(),
             "num_samples": len(records),

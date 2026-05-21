@@ -45,6 +45,9 @@ class GenerationResult:
     normalized_label: str
     timing: GenerationTiming
     generated_tokens: int
+    confidence: float = 0.0
+    runner_up_label: str = ""
+    runner_up_confidence: float = 0.0
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -61,13 +64,21 @@ class VLMEngine:
         model_id: str,
         monitor: HardwareMonitor | None = None,
         labels: tuple[str, ...] = ("Driving", "Texting", "Drinking", "Reaching", "Asleep"),
+        confidence_threshold: float = 1.0,
+        confidence_fallback: dict[str, str] | None = None,
     ) -> None:
         self.model_id = model_id
         self.monitor = monitor or HardwareMonitor()
         self.labels = labels
+        self.confidence_threshold = confidence_threshold
+        # e.g. {"Driving": "Reaching"} means: if top=Driving, conf<threshold,
+        # and runner-up=Reaching, use Reaching instead.
+        self.confidence_fallback: dict[str, str] = confidence_fallback or {}
         self.processor = self._load_processor(model_id)
         self.model = self._load_model(model_id)
         self.model.eval()
+        tokenizer = getattr(self.processor, "tokenizer", self.processor)
+        self._label_token_ids: dict[str, list[int]] = self._build_label_token_ids(tokenizer, labels)
 
     def generate_action(self, image_array: np.ndarray | Image.Image, prompt: str) -> GenerationResult:
         """Generate one short classification answer for a frame."""
@@ -78,25 +89,56 @@ class VLMEngine:
             input_token_count = self._input_token_count(inputs)
 
             with torch.inference_mode():
-                generated = self.model.generate(
+                outputs = self.model.generate(
                     **inputs,
                     max_new_tokens=5,
                     do_sample=False,
-                    return_dict_in_generate=False,
+                    return_dict_in_generate=True,
+                    output_scores=True,
                 )
 
             timer.mark_first_token()
-            generated_tokens = max(0, int(generated.shape[-1]) - input_token_count)
-            output_ids = generated[:, input_token_count:] if generated.shape[-1] > input_token_count else generated
+            generated_ids = outputs.sequences
+            scores = outputs.scores  # tuple of (batch, vocab) tensors
+            generated_tokens = max(0, int(generated_ids.shape[-1]) - input_token_count)
+            output_ids = (
+                generated_ids[:, input_token_count:]
+                if generated_ids.shape[-1] > input_token_count
+                else generated_ids
+            )
             decoded = self.processor.batch_decode(output_ids, skip_special_tokens=True)[0]
             text = self._strip_prompt_echo(decoded, prompt)
+
+            # Primary classification: logit scores over label first-tokens.
+            logit_label, confidence, runner_up, runner_up_conf = self._logit_label(
+                scores, fallback=self.normalize_label(text, self.labels)
+            )
+
+            # Confidence-gated fallback: if top label is a trigger and confidence is
+            # below the threshold, check whether the runner-up matches the fallback target.
+            if (
+                logit_label in self.confidence_fallback
+                and confidence < self.confidence_threshold
+                and runner_up == self.confidence_fallback[logit_label]
+            ):
+                LOGGER.debug(
+                    "Confidence fallback: %s (%.3f) -> %s (%.3f)",
+                    logit_label, confidence, runner_up, runner_up_conf,
+                )
+                logit_label, confidence, runner_up, runner_up_conf = (
+                    runner_up, runner_up_conf, logit_label, confidence
+                )
+
             timing = timer.finish(generated_tokens)
             self.monitor.update_peak_vram()
             return GenerationResult(
                 text=text,
-                normalized_label=self.normalize_label(text, self.labels),
+                normalized_label=logit_label,
                 timing=timing,
                 generated_tokens=generated_tokens,
+                confidence=confidence,
+                runner_up_label=runner_up,
+                runner_up_confidence=runner_up_conf,
             )
         except torch.cuda.OutOfMemoryError as exc:
             self._clear_cuda_cache()
@@ -107,6 +149,7 @@ class VLMEngine:
                 normalized_label="Unknown",
                 timing=timing,
                 generated_tokens=0,
+                confidence=0.0,
                 error=f"CUDA OOM: {exc}",
             )
         except RuntimeError as exc:
@@ -119,18 +162,74 @@ class VLMEngine:
                     normalized_label="Unknown",
                     timing=timing,
                     generated_tokens=0,
+                    confidence=0.0,
                     error=f"CUDA OOM: {exc}",
                 )
             raise
 
     @staticmethod
     def normalize_label(text: str, labels: tuple[str, ...]) -> str:
-        """Map generated text to the canonical label set."""
+        """Map generated text to the canonical label set (fallback for logit scoring)."""
         normalized = re.sub(r"[^a-z]+", " ", text.lower()).strip()
         for label in labels:
             if label.lower() in normalized.split() or label.lower() == normalized:
                 return label
         return "Unknown"
+
+    def _logit_label(
+        self, scores: tuple[torch.Tensor, ...], fallback: str
+    ) -> tuple[str, float, str, float]:
+        """Return (best_label, best_conf, runner_up_label, runner_up_conf) from first-token logits."""
+        if not scores or not self._label_token_ids:
+            return fallback, 0.0, "", 0.0
+        first_logits = scores[0][0]  # shape: (vocab_size,)
+        label_scores: dict[str, float] = {}
+        for label, token_ids in self._label_token_ids.items():
+            if token_ids:
+                label_scores[label] = first_logits[token_ids].max().item()
+            else:
+                label_scores[label] = float("-inf")
+        if not label_scores:
+            return fallback, 0.0, "", 0.0
+        score_tensor = torch.tensor(list(label_scores.values()), dtype=torch.float32)
+        probs = torch.softmax(score_tensor, dim=0)
+        # Rank labels by probability descending.
+        label_list = list(label_scores.keys())
+        sorted_indices = probs.argsort(descending=True).tolist()
+        best_idx = sorted_indices[0]
+        best_label = label_list[best_idx]
+        best_conf = float(probs[best_idx].item())
+        runner_up_label = ""
+        runner_up_conf = 0.0
+        if len(sorted_indices) > 1:
+            ru_idx = sorted_indices[1]
+            runner_up_label = label_list[ru_idx]
+            runner_up_conf = float(probs[ru_idx].item())
+        LOGGER.debug(
+            "Logit top=%s(%.3f) runner-up=%s(%.3f)",
+            best_label, best_conf, runner_up_label, runner_up_conf,
+        )
+        return best_label, best_conf, runner_up_label, runner_up_conf
+
+    @staticmethod
+    def _build_label_token_ids(tokenizer: Any, labels: tuple[str, ...]) -> dict[str, list[int]]:
+        """Build a cached map of label -> candidate first-token IDs for logit scoring."""
+        label_token_ids: dict[str, list[int]] = {}
+        for label in labels:
+            seen: set[int] = set()
+            candidates: list[int] = []
+            # Try the label with common tokenizer prefixes (space-prefixed for BPE/SentencePiece).
+            for variant in (label, " " + label, label.lower(), " " + label.lower()):
+                try:
+                    ids = tokenizer.encode(variant, add_special_tokens=False)
+                    if ids and ids[0] not in seen:
+                        seen.add(ids[0])
+                        candidates.append(ids[0])
+                except Exception:  # noqa: BLE001
+                    pass
+            label_token_ids[label] = candidates
+            LOGGER.debug("Label %r -> token IDs %s", label, candidates)
+        return label_token_ids
 
     def _load_model(self, model_id: str) -> torch.nn.Module:
         quantization_config = BitsAndBytesConfig(
