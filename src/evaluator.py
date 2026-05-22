@@ -140,6 +140,7 @@ class BenchmarkEvaluator:
         confidence_threshold: float = 1.0,
         confidence_fallback: dict[str, str] | None = None,
         load_bits: int = 4,
+        max_gpu_memory: str | None = None,
     ) -> None:
         self.dataset_root = Path(dataset_root)
         self.model_id = model_id
@@ -154,6 +155,7 @@ class BenchmarkEvaluator:
         self.confidence_threshold = confidence_threshold
         self.confidence_fallback: dict[str, str] = confidence_fallback or {}
         self.load_bits = load_bits
+        self.max_gpu_memory = max_gpu_memory
         self.monitor = HardwareMonitor()
 
     def run(self) -> dict[str, Any]:
@@ -179,6 +181,7 @@ class BenchmarkEvaluator:
             confidence_threshold=self.confidence_threshold,
             confidence_fallback=self.confidence_fallback,
             load_bits=self.load_bits,
+            max_gpu_memory=self.max_gpu_memory,
         )
         records: list[PredictionRecord] = []
         errors = 0

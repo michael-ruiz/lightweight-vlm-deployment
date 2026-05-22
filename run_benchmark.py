@@ -69,6 +69,17 @@ def parse_args() -> argparse.Namespace:
             "0=FP16 no quantization (broadest compatibility, highest VRAM)."
         ),
     )
+    parser.add_argument(
+        "--max-gpu-memory",
+        default=None,
+        metavar="SIZE",
+        help=(
+            "Cap GPU memory given to accelerate's device_map (e.g. '4GiB'). "
+            "Layers that don't fit are offloaded to CPU. "
+            "Required on Jetson Orin Nano with --load-bits 0 to prevent "
+            "NvMap contiguous-allocation failures. Example: --max-gpu-memory 4GiB"
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
 
@@ -108,6 +119,7 @@ def main() -> None:
         confidence_threshold=args.confidence_threshold,
         confidence_fallback=confidence_fallback or None,
         load_bits=args.load_bits,
+        max_gpu_memory=args.max_gpu_memory,
     )
     try:
         report = evaluator.run()
