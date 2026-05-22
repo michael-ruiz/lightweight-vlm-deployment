@@ -58,6 +58,17 @@ def parse_args() -> argparse.Namespace:
             "Can be specified multiple times. Example: --confidence-fallback-pair Driving Reaching"
         ),
     )
+    parser.add_argument(
+        "--load-bits",
+        type=int,
+        default=4,
+        choices=(4, 8, 0),
+        help=(
+            "Model quantization: 4=NF4 4-bit (default, smallest VRAM), "
+            "8=INT8 (recommended for Jetson Orin Nano), "
+            "0=FP16 no quantization (broadest compatibility, highest VRAM)."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
 
@@ -96,6 +107,7 @@ def main() -> None:
         random_seed=args.random_seed,
         confidence_threshold=args.confidence_threshold,
         confidence_fallback=confidence_fallback or None,
+        load_bits=args.load_bits,
     )
     try:
         report = evaluator.run()

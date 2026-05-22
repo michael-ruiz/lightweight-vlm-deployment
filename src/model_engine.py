@@ -67,6 +67,7 @@ class VLMEngine:
         labels: tuple[str, ...] = ("Driving", "Texting", "Drinking", "Reaching", "Asleep"),
         confidence_threshold: float = 1.0,
         confidence_fallback: dict[str, str] | None = None,
+        load_bits: int = 4,
     ) -> None:
         self.model_id = model_id
         self.monitor = monitor or HardwareMonitor()
@@ -75,6 +76,12 @@ class VLMEngine:
         # e.g. {"Driving": "Reaching"} means: if top=Driving, conf<threshold,
         # and runner-up=Reaching, use Reaching instead.
         self.confidence_fallback: dict[str, str] = confidence_fallback or {}
+        self.load_bits = load_bits
+        LOGGER.info(
+            "Loading %s in %s mode",
+            model_id,
+            f"{load_bits}-bit" if load_bits in (4, 8) else "FP16 (no quantization)",
+        )
         self.processor = self._load_processor(model_id)
         self.model = self._load_model(model_id)
         self.model.eval()
@@ -234,18 +241,32 @@ class VLMEngine:
         return label_token_ids
 
     def _load_model(self, model_id: str) -> torch.nn.Module:
-        quantization_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-            bnb_4bit_use_double_quant=True,
-        )
-        model_kwargs = {
-            "quantization_config": quantization_config,
+        """Load the VLM with the requested quantization level.
+
+        load_bits=4  → NF4 4-bit via bitsandbytes (smallest VRAM, may fail on Jetson)
+        load_bits=8  → INT8 via bitsandbytes (recommended for Jetson Orin Nano)
+        load_bits=0  → plain FP16, no quantization (largest VRAM, broadest compat)
+        """
+        if self.load_bits == 4:
+            quantization_config: BitsAndBytesConfig | None = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True,
+            )
+        elif self.load_bits == 8:
+            quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+        else:
+            quantization_config = None
+
+        model_kwargs: dict[str, Any] = {
             "torch_dtype": torch.float16,
             "device_map": "auto",
             "trust_remote_code": True,
         }
+        if quantization_config is not None:
+            model_kwargs["quantization_config"] = quantization_config
+
         model_classes = (
             ("AutoModelForImageTextToText", AutoModelForImageTextToText),
             ("AutoModelForVision2Seq", AutoModelForVision2Seq),

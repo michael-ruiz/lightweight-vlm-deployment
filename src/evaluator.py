@@ -139,6 +139,7 @@ class BenchmarkEvaluator:
         random_seed: int = 7,
         confidence_threshold: float = 1.0,
         confidence_fallback: dict[str, str] | None = None,
+        load_bits: int = 4,
     ) -> None:
         self.dataset_root = Path(dataset_root)
         self.model_id = model_id
@@ -152,6 +153,7 @@ class BenchmarkEvaluator:
         self.random_seed = random_seed
         self.confidence_threshold = confidence_threshold
         self.confidence_fallback: dict[str, str] = confidence_fallback or {}
+        self.load_bits = load_bits
         self.monitor = HardwareMonitor()
 
     def run(self) -> dict[str, Any]:
@@ -176,6 +178,7 @@ class BenchmarkEvaluator:
             labels=self.labels,
             confidence_threshold=self.confidence_threshold,
             confidence_fallback=self.confidence_fallback,
+            load_bits=self.load_bits,
         )
         records: list[PredictionRecord] = []
         errors = 0
@@ -338,6 +341,10 @@ class BenchmarkEvaluator:
             "frames_per_segment": self.frames_per_segment,
             "subset_mode": self.subset_mode,
             "random_seed": self.random_seed,
+            "load_bits": self.load_bits,
+            "quantization_mode": (
+                f"{self.load_bits}-bit" if self.load_bits in (4, 8) else "fp16"
+            ),
             "labels": list(self.labels),
             "prompt": self.prompt,
             "model_id": self.model_id,
