@@ -141,6 +141,7 @@ class BenchmarkEvaluator:
         confidence_fallback: dict[str, str] | None = None,
         load_bits: int = 4,
         max_gpu_memory: str | None = None,
+        device_map: str = "auto",
     ) -> None:
         self.dataset_root = Path(dataset_root)
         self.model_id = model_id
@@ -156,6 +157,7 @@ class BenchmarkEvaluator:
         self.confidence_fallback: dict[str, str] = confidence_fallback or {}
         self.load_bits = load_bits
         self.max_gpu_memory = max_gpu_memory
+        self.device_map = device_map
         self.monitor = HardwareMonitor()
 
     def run(self) -> dict[str, Any]:
@@ -182,6 +184,7 @@ class BenchmarkEvaluator:
             confidence_fallback=self.confidence_fallback,
             load_bits=self.load_bits,
             max_gpu_memory=self.max_gpu_memory,
+            device_map=self.device_map,
         )
         records: list[PredictionRecord] = []
         errors = 0
@@ -348,6 +351,7 @@ class BenchmarkEvaluator:
             "quantization_mode": (
                 f"{self.load_bits}-bit" if self.load_bits in (4, 8) else "fp16"
             ),
+            "device_map": self.device_map,
             "labels": list(self.labels),
             "prompt": self.prompt,
             "model_id": self.model_id,

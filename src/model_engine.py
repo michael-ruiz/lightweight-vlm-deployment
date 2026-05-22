@@ -69,6 +69,7 @@ class VLMEngine:
         confidence_fallback: dict[str, str] | None = None,
         load_bits: int = 4,
         max_gpu_memory: str | None = None,
+        device_map: str = "auto",
     ) -> None:
         self.model_id = model_id
         self.monitor = monitor or HardwareMonitor()
@@ -77,12 +78,11 @@ class VLMEngine:
         self.confidence_fallback: dict[str, str] = confidence_fallback or {}
         self.load_bits = load_bits
         self.max_gpu_memory = max_gpu_memory
-        LOGGER.info(
-            "Loading %s in %s mode%s",
-            model_id,
-            f"{load_bits}-bit" if load_bits in (4, 8) else "FP16 (no quantization)",
-            f" (max GPU memory: {max_gpu_memory})" if max_gpu_memory else "",
-        )
+        self.device_map = device_map
+        _bits_label = f"{load_bits}-bit" if load_bits in (4, 8) else "FP16 (no quantization)"
+        _dev_label = f"device_map={device_map}"
+        _mem_label = f", max GPU={max_gpu_memory}" if max_gpu_memory and device_map != "cpu" else ""
+        LOGGER.info("Loading %s — %s, %s%s", model_id, _bits_label, _dev_label, _mem_label)
         self.processor = self._load_processor(model_id)
         self.model = self._load_model(model_id)
         self.model.eval()
@@ -242,16 +242,17 @@ class VLMEngine:
         return label_token_ids
 
     def _load_model(self, model_id: str) -> torch.nn.Module:
-        """Load the VLM with the requested quantization level.
+        """Load the VLM with the requested quantization and device placement.
 
-        load_bits=4  -> NF4 4-bit via bitsandbytes (smallest VRAM, broken on Jetson Orin)
-        load_bits=8  -> INT8 via bitsandbytes (broken on Jetson Orin)
-        load_bits=0  -> plain FP16, no quantization (required on Jetson; set
-                        PYTORCH_NO_CUDA_MEMORY_CACHING=1 and use --max-gpu-memory)
+        load_bits=4  -> NF4 4-bit via bitsandbytes (crashes on Jetson Orin)
+        load_bits=8  -> INT8 via bitsandbytes (crashes on Jetson Orin)
+        load_bits=0  -> plain FP16 (required on Jetson)
 
-        max_gpu_memory (e.g. "4GiB") caps GPU allocation so accelerate CPU-offloads
-        the overflow instead of attempting one giant contiguous GPU alloc (which
-        triggers NvMap ENOMEM on Jetson's Tegra unified memory).
+        device_map='auto' -> accelerate places layers on GPU/CPU automatically
+        device_map='cpu'  -> load entirely on CPU RAM (no CUDA allocs; slow but safe)
+
+        On Jetson Orin Nano: use --load-bits 0 --device-map cpu
+        (set PYTORCH_NO_CUDA_MEMORY_CACHING=1 if you want GPU layers via device_map=auto)
         """
         if self.load_bits == 4:
             quantization_config: BitsAndBytesConfig | None = BitsAndBytesConfig(
@@ -267,15 +268,14 @@ class VLMEngine:
 
         model_kwargs: dict[str, Any] = {
             "torch_dtype": torch.float16,
-            "device_map": "auto",
+            "device_map": self.device_map,
             "trust_remote_code": True,
             "low_cpu_mem_usage": True,
         }
         if quantization_config is not None:
             model_kwargs["quantization_config"] = quantization_config
-        if self.max_gpu_memory is not None:
-            # Let accelerate CPU-offload what doesn't fit on the GPU.
-            # "40GiB" for CPU is a safe large ceiling (uses system RAM).
+        # max_memory is only meaningful for multi-device / GPU+CPU offloading.
+        if self.max_gpu_memory is not None and self.device_map != "cpu":
             model_kwargs["max_memory"] = {0: self.max_gpu_memory, "cpu": "40GiB"}
             LOGGER.info("max_memory set: GPU=%s, CPU=40GiB", self.max_gpu_memory)
 

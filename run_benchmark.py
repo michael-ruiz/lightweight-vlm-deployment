@@ -80,6 +80,17 @@ def parse_args() -> argparse.Namespace:
             "NvMap contiguous-allocation failures. Example: --max-gpu-memory 4GiB"
         ),
     )
+    parser.add_argument(
+        "--device-map",
+        default="auto",
+        choices=("auto", "cpu"),
+        help=(
+            "How to place model layers. 'auto' (default) uses accelerate to split "
+            "across GPU+CPU. 'cpu' loads everything on CPU RAM — no CUDA allocations "
+            "at all. Use '--device-map cpu' on Jetson Orin Nano when CUDA OOM persists "
+            "with --load-bits 0. Inference will be slow (~5-30s/frame) but reliable."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
 
@@ -120,6 +131,7 @@ def main() -> None:
         confidence_fallback=confidence_fallback or None,
         load_bits=args.load_bits,
         max_gpu_memory=args.max_gpu_memory,
+        device_map=args.device_map,
     )
     try:
         report = evaluator.run()
