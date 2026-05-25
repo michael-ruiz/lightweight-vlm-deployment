@@ -79,7 +79,7 @@ class VLLMEngine:
                 # Default is max_pixels=~16384 tokens (~4096x4096px) which exhausts
                 # Jetson VRAM during the vision encoder dummy forward pass.
                 # 336x336 gives ~196 tokens — sufficient for dashcam frames.
-                "max_pixels": 336 * 336,
+                "max_pixels": 504 * 504,  # 324 img tokens + ~100 text = ~424 total < 512 budget. 2.25x more detail than 336px (improves Texting/Reaching accuracy).
                 "min_pixels": 28 * 28,
             },
         )
