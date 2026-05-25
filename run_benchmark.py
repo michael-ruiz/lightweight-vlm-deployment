@@ -94,13 +94,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--backend",
         default="pytorch",
-        choices=("pytorch", "tensorrt-llm"),
-        help="Inference backend to use. TensorRT-LLM requires pre-built engines.",
+        choices=("pytorch", "tensorrt-llm", "vllm"),
+        help="Inference backend to use. vLLM uses PagedAttention to bypass Jetson NvMap limits.",
     )
     parser.add_argument(
         "--engine-dir",
         default=None,
         help="Path to the TensorRT-LLM engine directory (required if backend=tensorrt-llm).",
+    )
+    parser.add_argument(
+        "--vllm-gpu-memory-utilization",
+        type=float,
+        default=0.9,
+        help="Fraction of GPU memory to allocate for vLLM KV cache (default: 0.9).",
     )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
@@ -145,6 +151,7 @@ def main() -> None:
         device_map=args.device_map,
         backend=args.backend,
         engine_dir=args.engine_dir,
+        vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
     )
     try:
         report = evaluator.run()

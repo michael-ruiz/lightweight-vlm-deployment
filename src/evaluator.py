@@ -144,6 +144,7 @@ class BenchmarkEvaluator:
         device_map: str = "auto",
         backend: str = "pytorch",
         engine_dir: str | None = None,
+        vllm_gpu_memory_utilization: float = 0.9,
     ) -> None:
         self.dataset_root = Path(dataset_root)
         self.model_id = model_id
@@ -162,6 +163,7 @@ class BenchmarkEvaluator:
         self.device_map = device_map
         self.backend = backend
         self.engine_dir = engine_dir
+        self.vllm_gpu_memory_utilization = vllm_gpu_memory_utilization
         self.monitor = HardwareMonitor()
 
     def run(self) -> dict[str, Any]:
@@ -190,6 +192,16 @@ class BenchmarkEvaluator:
                 labels=self.labels,
                 confidence_threshold=self.confidence_threshold,
                 confidence_fallback=self.confidence_fallback,
+            )
+        elif self.backend == "vllm":
+            from src.vllm_engine import VLLMEngine
+            engine = VLLMEngine(
+                model_id=self.model_id,
+                monitor=self.monitor,
+                labels=self.labels,
+                confidence_threshold=self.confidence_threshold,
+                confidence_fallback=self.confidence_fallback,
+                vllm_gpu_memory_utilization=self.vllm_gpu_memory_utilization,
             )
         else:
             engine = VLMEngine(
