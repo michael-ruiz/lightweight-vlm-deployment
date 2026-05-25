@@ -53,6 +53,7 @@ class VLLMEngine:
             gpu_memory_utilization=self.gpu_memory_utilization,
             max_model_len=4096,  # Cap context to save KV cache VRAM
             limit_mm_per_prompt={"image": 1},
+            enforce_eager=True,  # Critical for Jetson: Disables CUDA graphs which allocate massive contiguous VRAM pools
         )
         
         # Load the tokenizer from the LLM for token manipulation
