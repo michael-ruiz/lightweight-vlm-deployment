@@ -61,6 +61,14 @@ class VLLMEngine:
             limit_mm_per_prompt={"image": 1},
             enforce_eager=True,  # Disables CUDA graphs (avoids contiguous VRAM alloc on Jetson)
             dtype="half",  # Force FP16; BF16 default requires more contiguous memory headroom
+            mm_processor_kwargs={
+                # Limit image resolution for the vLLM profiling run.
+                # Default is max_pixels=~16384 tokens (~4096x4096px) which exhausts
+                # Jetson VRAM during the vision encoder dummy forward pass.
+                # 336x336 gives ~196 tokens — sufficient for dashcam frames.
+                "max_pixels": 336 * 336,
+                "min_pixels": 28 * 28,
+            },
         )
         
         # Load the tokenizer from the LLM for token manipulation
