@@ -8,7 +8,10 @@ from typing import Any
 # Must be set BEFORE importing vLLM or instantiating LLM() so that the
 # spawned EngineCore subprocess inherits these values. Shell env vars are
 # NOT inherited across Python multiprocessing 'spawn' boundaries.
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128,expandable_segments:True")
+# NOTE: Do NOT use expandable_segments=True on Jetson — it enables CUDA VMM
+# (cuMemCreate/cuMemMap) which conflicts with Jetson NvMap and causes
+# NVML_SUCCESS assertion failures on every allocation.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
 
 import numpy as np
 from PIL import Image
