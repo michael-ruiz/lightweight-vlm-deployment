@@ -65,7 +65,7 @@ class VLLMEngine:
             model=self.model_id,
             trust_remote_code=True,
             gpu_memory_utilization=self.gpu_memory_utilization,
-            max_model_len=4096,  # Cap context to save KV cache VRAM
+            max_model_len=512,  # Our prompts are ~250 tokens (144 image + text + 5 output); V0 requires max_model_len <= max_num_batched_tokens
             limit_mm_per_prompt={"image": 1, "video": 0},  # We only pass single images; disable video profiling to avoid OOM on Jetson
             enforce_eager=True,  # Disables CUDA graphs (avoids contiguous VRAM alloc on Jetson)
             dtype="half",  # Force FP16; BF16 default requires more contiguous memory headroom
