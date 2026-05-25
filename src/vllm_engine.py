@@ -73,6 +73,7 @@ class VLLMEngine:
             max_num_seqs=1,  # Single sequence at a time for Jetson memory budget
             num_gpu_blocks_override=64,  # Cap KV cache: vLLM computed 5365 blocks (167MB/layer cudaMalloc) but NvMap can't provide that contiguously after model load.
                                          # 64 blocks x 16 tokens = 1024 token capacity (enough for 512-token sequences); each layer allocation = 1.5MB (easily satisfiable).
+            swap_space=0,  # Disable CPU KV cache swap: default 7281 CPU blocks = 6.3GB RAM which exceeds Jetson's available memory after model load.
             mm_processor_kwargs={
                 # Limit image resolution for the vLLM profiling run.
                 # Default is max_pixels=~16384 tokens (~4096x4096px) which exhausts
