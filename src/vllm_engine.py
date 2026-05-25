@@ -12,6 +12,11 @@ from typing import Any
 # (cuMemCreate/cuMemMap) which conflicts with Jetson NvMap and causes
 # NVML_SUCCESS assertion failures on every allocation.
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128")
+# Force vLLM V0 engine: V1's profiler runs a full 512-token LLM dummy forward
+# pass to measure peak memory, which exhausts all remaining VRAM on Jetson,
+# leaving no room for KV cache blocks and raising ValueError.
+# V0 uses a simpler heuristic-based approach that works within Jetson's budget.
+os.environ.setdefault("VLLM_USE_V1", "0")
 
 import numpy as np
 from PIL import Image
