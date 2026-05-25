@@ -91,12 +91,20 @@ class VLLMEngine:
 
     def generate_action(self, image_array: np.ndarray | Image.Image, prompt: str) -> GenerationResult:
         """Run multimodal inference using vLLM."""
+        import base64
+        import io
         start_time = time.perf_counter()
 
         if isinstance(image_array, np.ndarray):
             pil_image = Image.fromarray(image_array)
         else:
             pil_image = image_array
+
+        # Encode image as base64 JPEG for vLLM chat API
+        buf = io.BytesIO()
+        pil_image.save(buf, format="JPEG", quality=85)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        image_url = f"data:image/jpeg;base64,{b64}"
 
         from vllm import SamplingParams
 
@@ -107,13 +115,12 @@ class VLLMEngine:
             logprobs=20,  # Grab top 20 logprobs to find our labels
         )
 
-        # For vLLM 0.6.0+ multimodal dict structure
-        # The prompt for Qwen2.5-VL natively via vLLM
+        # For vLLM multimodal chat: use image_url with base64-encoded JPEG
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {"type": "image"},
+                    {"type": "image_url", "image_url": {"url": image_url}},
                     {"type": "text", "text": prompt},
                 ],
             }
@@ -129,7 +136,7 @@ class VLLMEngine:
             return GenerationResult(
                 text="",
                 normalized_label="Unknown",
-                timing=GenerationTiming(total_seconds=0.0, first_token_seconds=0.0, output_tokens=0),
+                timing=GenerationTiming(total_seconds=0.0, ttft_seconds=None, generated_tokens=0),
                 generated_tokens=0,
                 confidence=0.0,
                 runner_up_label="Unknown",
