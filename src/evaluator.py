@@ -142,6 +142,8 @@ class BenchmarkEvaluator:
         load_bits: int = 4,
         max_gpu_memory: str | None = None,
         device_map: str = "auto",
+        backend: str = "pytorch",
+        engine_dir: str | None = None,
     ) -> None:
         self.dataset_root = Path(dataset_root)
         self.model_id = model_id
@@ -158,6 +160,8 @@ class BenchmarkEvaluator:
         self.load_bits = load_bits
         self.max_gpu_memory = max_gpu_memory
         self.device_map = device_map
+        self.backend = backend
+        self.engine_dir = engine_dir
         self.monitor = HardwareMonitor()
 
     def run(self) -> dict[str, Any]:
@@ -176,16 +180,28 @@ class BenchmarkEvaluator:
             self._write_report(report)
             return report
 
-        engine = VLMEngine(
-            model_id=self.model_id,
-            monitor=self.monitor,
-            labels=self.labels,
-            confidence_threshold=self.confidence_threshold,
-            confidence_fallback=self.confidence_fallback,
-            load_bits=self.load_bits,
-            max_gpu_memory=self.max_gpu_memory,
-            device_map=self.device_map,
-        )
+        if self.backend == "tensorrt-llm":
+            if not self.engine_dir:
+                raise ValueError("--engine-dir is required when backend is tensorrt-llm")
+            from src.trtllm_engine import TRTLLMEngine
+            engine = TRTLLMEngine(
+                engine_dir=self.engine_dir,
+                monitor=self.monitor,
+                labels=self.labels,
+                confidence_threshold=self.confidence_threshold,
+                confidence_fallback=self.confidence_fallback,
+            )
+        else:
+            engine = VLMEngine(
+                model_id=self.model_id,
+                monitor=self.monitor,
+                labels=self.labels,
+                confidence_threshold=self.confidence_threshold,
+                confidence_fallback=self.confidence_fallback,
+                load_bits=self.load_bits,
+                max_gpu_memory=self.max_gpu_memory,
+                device_map=self.device_map,
+            )
         records: list[PredictionRecord] = []
         errors = 0
 
@@ -352,6 +368,8 @@ class BenchmarkEvaluator:
                 f"{self.load_bits}-bit" if self.load_bits in (4, 8) else "fp16"
             ),
             "device_map": self.device_map,
+            "backend": self.backend,
+            "engine_dir": self.engine_dir,
             "labels": list(self.labels),
             "prompt": self.prompt,
             "model_id": self.model_id,

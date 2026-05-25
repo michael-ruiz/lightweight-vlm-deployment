@@ -91,6 +91,17 @@ def parse_args() -> argparse.Namespace:
             "with --load-bits 0. Inference will be slow (~5-30s/frame) but reliable."
         ),
     )
+    parser.add_argument(
+        "--backend",
+        default="pytorch",
+        choices=("pytorch", "tensorrt-llm"),
+        help="Inference backend to use. TensorRT-LLM requires pre-built engines.",
+    )
+    parser.add_argument(
+        "--engine-dir",
+        default=None,
+        help="Path to the TensorRT-LLM engine directory (required if backend=tensorrt-llm).",
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
 
@@ -132,6 +143,8 @@ def main() -> None:
         load_bits=args.load_bits,
         max_gpu_memory=args.max_gpu_memory,
         device_map=args.device_map,
+        backend=args.backend,
+        engine_dir=args.engine_dir,
     )
     try:
         report = evaluator.run()
