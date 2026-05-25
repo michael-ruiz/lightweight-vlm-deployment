@@ -1,8 +1,14 @@
 """vLLM inference engine for Jetson deployment."""
 
 import logging
+import os
 import time
 from typing import Any
+
+# Must be set BEFORE importing vLLM or instantiating LLM() so that the
+# spawned EngineCore subprocess inherits these values. Shell env vars are
+# NOT inherited across Python multiprocessing 'spawn' boundaries.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "max_split_size_mb:128,expandable_segments:True")
 
 import numpy as np
 from PIL import Image
@@ -53,7 +59,8 @@ class VLLMEngine:
             gpu_memory_utilization=self.gpu_memory_utilization,
             max_model_len=4096,  # Cap context to save KV cache VRAM
             limit_mm_per_prompt={"image": 1},
-            enforce_eager=True,  # Critical for Jetson: Disables CUDA graphs which allocate massive contiguous VRAM pools
+            enforce_eager=True,  # Disables CUDA graphs (avoids contiguous VRAM alloc on Jetson)
+            dtype="half",  # Force FP16; BF16 default requires more contiguous memory headroom
         )
         
         # Load the tokenizer from the LLM for token manipulation
