@@ -61,6 +61,8 @@ class VLLMEngine:
             limit_mm_per_prompt={"image": 1, "video": 0},  # We only pass single images; disable video profiling to avoid OOM on Jetson
             enforce_eager=True,  # Disables CUDA graphs (avoids contiguous VRAM alloc on Jetson)
             dtype="half",  # Force FP16; BF16 default requires more contiguous memory headroom
+            max_num_batched_tokens=512,  # Limit batch size: 512/144tokens_per_image = ~3 images in profiling run (vs default 8192/144 = 57)
+            max_num_seqs=1,  # Single sequence at a time for Jetson memory budget
             mm_processor_kwargs={
                 # Limit image resolution for the vLLM profiling run.
                 # Default is max_pixels=~16384 tokens (~4096x4096px) which exhausts
