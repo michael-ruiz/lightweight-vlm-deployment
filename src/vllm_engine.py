@@ -206,8 +206,8 @@ class VLLMEngine:
 
         timing = GenerationTiming(
             total_seconds=inference_seconds,
-            first_token_seconds=ttft_seconds,
-            output_tokens=generated_tokens,
+            ttft_seconds=ttft_seconds if ttft_seconds else None,
+            generated_tokens=generated_tokens,
         )
 
         return GenerationResult(
