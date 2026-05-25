@@ -11,6 +11,13 @@ import numpy as np
 import torch
 from PIL import Image
 from transformers import AutoProcessor, BitsAndBytesConfig
+import transformers.modeling_utils
+
+# Jetson NvMap bypass: Disable the Transformers PyTorch cache warmup.
+# The warmup tries to pre-allocate a single 3GB block of VRAM to prevent fragmentation,
+# which instantly triggers NvMap Error 12 on Jetson 8GB. Disabling it allows the
+# PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:128" environment variable to chunk the loading.
+transformers.modeling_utils.caching_allocator_warmup = lambda *args, **kwargs: None
 
 try:
     from transformers import AutoModelForImageTextToText
