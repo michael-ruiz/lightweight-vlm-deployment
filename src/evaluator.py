@@ -145,6 +145,7 @@ class BenchmarkEvaluator:
         backend: str = "pytorch",
         engine_dir: str | None = None,
         vllm_gpu_memory_utilization: float = 0.9,
+        multi_frame_mode: str = "majority-vote",
     ) -> None:
         self.dataset_root = Path(dataset_root)
         self.model_id = model_id
@@ -164,6 +165,7 @@ class BenchmarkEvaluator:
         self.backend = backend
         self.engine_dir = engine_dir
         self.vllm_gpu_memory_utilization = vllm_gpu_memory_utilization
+        self.multi_frame_mode = multi_frame_mode
         self.monitor = HardwareMonitor()
 
     def run(self) -> dict[str, Any]:
@@ -202,6 +204,7 @@ class BenchmarkEvaluator:
                 confidence_threshold=self.confidence_threshold,
                 confidence_fallback=self.confidence_fallback,
                 vllm_gpu_memory_utilization=self.vllm_gpu_memory_utilization,
+                multi_frame_mode=(self.multi_frame_mode == "single-call"),
             )
         else:
             engine = VLMEngine(
@@ -241,6 +244,37 @@ class BenchmarkEvaluator:
         inference_times: list[float] = []
         confidences: list[float] = []
         errors: list[str] = []
+
+        # Single-call mode: pass all frames to the model in one message.
+        if self.multi_frame_mode == "single-call" and hasattr(engine, "generate_multi_frame_action") and len(sample.images) > 1:
+            result = engine.generate_multi_frame_action(
+                [pil_to_numpy(img) for img in sample.images],
+                self.prompt,
+            )
+            frame_predictions = [FramePrediction(
+                frame_index=sample.frame_indices[0],
+                prediction=result.normalized_label,
+                raw_text=result.text,
+                ttft_seconds=result.timing.ttft_seconds,
+                tokens_per_second=result.timing.tokens_per_second,
+                inference_seconds=result.inference_seconds,
+                confidence=result.confidence,
+                runner_up_label=result.runner_up_label,
+                runner_up_confidence=result.runner_up_confidence,
+                error=result.error,
+            )]
+            return PredictionRecord(
+                path=str(sample.path),
+                ground_truth=sample.label,
+                prediction=result.normalized_label,
+                raw_text=result.text,
+                ttft_seconds=result.timing.ttft_seconds,
+                tokens_per_second=result.timing.tokens_per_second,
+                frame_indices=sample.frame_indices,
+                frame_predictions=tuple(frame_predictions),
+                avg_confidence=result.confidence,
+                error=result.error,
+            )
 
         for frame_index, image in zip(sample.frame_indices, sample.images):
             result = engine.generate_action(pil_to_numpy(image), self.prompt)

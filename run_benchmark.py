@@ -108,6 +108,16 @@ def parse_args() -> argparse.Namespace:
         default=0.9,
         help="Fraction of GPU memory to allocate for vLLM KV cache (default: 0.9).",
     )
+    parser.add_argument(
+        "--multi-frame-mode",
+        default="majority-vote",
+        choices=("majority-vote", "single-call"),
+        help=(
+            "How to aggregate multiple frames per segment. "
+            "'majority-vote' (default) runs one inference per frame then votes. "
+            "'single-call' sends all frames in one message for holistic reasoning (vLLM only)."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
 
@@ -152,6 +162,7 @@ def main() -> None:
         backend=args.backend,
         engine_dir=args.engine_dir,
         vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
+        multi_frame_mode=args.multi_frame_mode,
     )
     try:
         report = evaluator.run()
