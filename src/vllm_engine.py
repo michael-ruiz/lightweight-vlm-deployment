@@ -190,6 +190,7 @@ class VLLMEngine:
             # Sort labels by probability
             sorted_labels = sorted(label_probs.items(), key=lambda x: x[1], reverse=True)
             if sorted_labels:
+                best_label = sorted_labels[0][0]  # Override text-parsed label with highest logprob label
                 best_conf = sorted_labels[0][1]
                 if len(sorted_labels) > 1:
                     runner_up_label = sorted_labels[1][0]
@@ -322,6 +323,7 @@ class VLLMEngine:
                 label_probs[label] = prob_sum
             sorted_labels = sorted(label_probs.items(), key=lambda x: x[1], reverse=True)
             if sorted_labels:
+                best_label = sorted_labels[0][0]  # Override text-parsed label with highest logprob label
                 best_conf = sorted_labels[0][1]
                 if len(sorted_labels) > 1:
                     runner_up_label = sorted_labels[1][0]
