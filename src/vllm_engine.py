@@ -64,6 +64,10 @@ class VLLMEngine:
         # Token budget: single-frame uses 361 img + ~100 text = ~461 tokens (fits in 512).
         # Multi-frame single-call: 3 × 361 img + ~150 text = ~1233 tokens → use 1536 budget.
         token_budget = 1536 if multi_frame_mode else 512
+        # KV cache blocks must satisfy: num_blocks × block_size(16) >= max_model_len
+        # Single-frame: 64 × 16 = 1024 ≥ 512 ✓  (1 MB/layer per block)
+        # Multi-frame:  128 × 16 = 2048 ≥ 1536 ✓ (2 MB/layer per block — still fine for NvMap)
+        kv_blocks = 128 if multi_frame_mode else 64
 
         self.llm = LLM(
             model=self.model_id,
@@ -75,7 +79,7 @@ class VLLMEngine:
             dtype="half",
             max_num_batched_tokens=token_budget,
             max_num_seqs=1,
-            num_gpu_blocks_override=64,
+            num_gpu_blocks_override=kv_blocks,
             swap_space=0,
             mm_processor_kwargs={
                 "max_pixels": 532 * 532,  # 38×38 patches / 4 = 361 tokens; +~100 text = 461 < 512 single-frame budget
