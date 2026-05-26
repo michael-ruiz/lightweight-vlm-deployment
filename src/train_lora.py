@@ -130,6 +130,8 @@ def main() -> None:
         logging_steps=5,
         save_strategy="epoch",
         bf16=True,
+        max_length=2048,
+        dataset_text_field="text",
         remove_unused_columns=False,
     )
     
@@ -162,8 +164,6 @@ def main() -> None:
         train_dataset=dataset,
         data_collator=data_collator,
         processing_class=processor,
-        max_seq_length=2048,
-        dataset_text_field="text",
     )
     
     trainer.train()
