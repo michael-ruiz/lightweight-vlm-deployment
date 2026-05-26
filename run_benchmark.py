@@ -128,6 +128,17 @@ def parse_args() -> argparse.Namespace:
             "Default: enforce_eager=True (safe for Jetson)."
         ),
     )
+    parser.add_argument(
+        "--lora-dir",
+        default=None,
+        help="Path to a directory containing LoRA adapters to load for inference (vLLM only).",
+    )
+    parser.add_argument(
+        "--image-resolution",
+        type=int,
+        default=532,
+        help="Resolution to scale images to before inference (default: 532). Example: 280",
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
 
@@ -174,6 +185,8 @@ def main() -> None:
         vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
         multi_frame_mode=args.multi_frame_mode,
         enforce_eager=not args.no_enforce_eager,
+        lora_dir=args.lora_dir,
+        image_size=(args.image_resolution, args.image_resolution),
     )
     try:
         report = evaluator.run()

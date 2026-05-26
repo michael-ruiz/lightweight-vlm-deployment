@@ -40,6 +40,8 @@ class VLLMEngine:
         vllm_gpu_memory_utilization: float = 0.9,
         multi_frame_mode: bool = False,
         enforce_eager: bool = True,
+        lora_dir: str | None = None,
+        image_resolution: int = 532,
     ) -> None:
         self.model_id = model_id
         self.monitor = monitor or HardwareMonitor()
@@ -49,6 +51,8 @@ class VLLMEngine:
         self.gpu_memory_utilization = vllm_gpu_memory_utilization
         self.multi_frame_mode = multi_frame_mode
         self.enforce_eager = enforce_eager
+        self.lora_dir = lora_dir
+        self.image_resolution = image_resolution
 
         LOGGER.info(
             "Loading vLLM engine for %s (gpu_utilization=%.2f)",
@@ -83,11 +87,20 @@ class VLLMEngine:
             max_num_seqs=1,
             num_gpu_blocks_override=kv_blocks,
             swap_space=0,
+            enable_lora=bool(self.lora_dir),
+            max_loras=1 if self.lora_dir else 0,
+            max_lora_rank=16 if self.lora_dir else 0,
             mm_processor_kwargs={
-                "max_pixels": 532 * 532,  # 38×38 patches / 4 = 361 tokens; +~100 text = 461 < 512 single-frame budget
+                "max_pixels": self.image_resolution * self.image_resolution,
                 "min_pixels": 28 * 28,
             },
         )
+        
+        if self.lora_dir:
+            from vllm.lora.request import LoRARequest
+            self.lora_request = LoRARequest("adapter", 1, self.lora_dir)
+        else:
+            self.lora_request = None
         
         # Load the tokenizer from the LLM for token manipulation
         tokenizer = self.llm.get_tokenizer()
@@ -136,6 +149,7 @@ class VLLMEngine:
                 messages,
                 sampling_params=sampling_params,
                 use_tqdm=False,
+                lora_request=self.lora_request,
             )
         except Exception as e:
             return GenerationResult(
@@ -279,7 +293,12 @@ class VLLMEngine:
         messages = [{"role": "user", "content": content}]
 
         try:
-            outputs = self.llm.chat(messages, sampling_params=sampling_params, use_tqdm=False)
+            outputs = self.llm.chat(
+                messages, 
+                sampling_params=sampling_params, 
+                use_tqdm=False,
+                lora_request=self.lora_request,
+            )
         except Exception as e:
             return GenerationResult(
                 text="",
