@@ -160,29 +160,95 @@ The `--prompt-profile` flag selects a pre-tuned prompt and label set. Passing `d
 
 The Jetson Orin Nano uses **NvMap**, a kernel-level memory manager that requires physically contiguous DRAM pages. Standard PyTorch `cudaMalloc` calls for large tensors (model weights, KV cache, activation buffers) frequently fail with `NvMapMemAllocInternalTagged: error 12` due to physical fragmentation.
 
-### Recommended setup
+### Prerequisites
 
-1. **Switch to multi-user target** (free GPU memory from desktop):
-   ```bash
-   sudo systemctl isolate multi-user.target
-   ```
+- **JetPack 6.2 or later** (tested on JetPack 6.2.1 — L4T r36.4)
+- **Docker** with `nvidia-container-toolkit` enabled
+- At least **6 GB of free disk space** for the container image + model weights
 
-2. **Use the AWQ-quantized model** — `Qwen/Qwen2.5-VL-3B-Instruct-AWQ` occupies 3.29 GiB (vs. ~6 GiB for BF16).
+Verify your JetPack version:
+```bash
+cat /etc/nv_tegra_release
+```
 
-3. **Use the vLLM backend** — PagedAttention allocates KV cache in small non-contiguous 16-token pages, bypassing the contiguous allocation requirement.
+### 1. Pull the Jetson AI Lab vLLM container
 
-4. **Run the benchmark**:
-   ```bash
-   python3 run_benchmark.py \
-     --backend vllm \
-     --vllm-gpu-memory-utilization 0.85 \
-     --model-id Qwen/Qwen2.5-VL-3B-Instruct-AWQ \
-     --dataset-root data \
-     --prompt-profile driveact \
-     --frames-per-segment 3 \
-     --limit 50 \
-     --output benchmark_results.json
-   ```
+The [Jetson AI Lab](https://www.jetson-ai-lab.com/vllm.html) publishes pre-built containers with PyTorch, CUDA, and vLLM compiled for ARM64/Jetson. Pull the container matching your JetPack release:
+
+```bash
+# JetPack 6.x (L4T r36) — CUDA 12.6/12.8
+docker pull dustynv/vllm:r36.4.0
+```
+
+> Check [hub.docker.com/r/dustynv/vllm/tags](https://hub.docker.com/r/dustynv/vllm/tags) for the latest tag matching your `r36.x` L4T version.
+
+### 2. Clone the repository on the host
+
+```bash
+git clone https://github.com/michael-ruiz/lightweight-vlm-deployment.git
+cd lightweight-vlm-deployment
+```
+
+Place (or symlink) your Drive&Act dataset under `data/` before starting the container so it is available via the volume mount.
+
+### 3. Start the container
+
+```bash
+docker run \
+  --runtime nvidia \
+  --gpus all \
+  -it \
+  --rm \
+  --name vlm-bench \
+  --shm-size=4g \
+  -v $(pwd):/workspace \
+  -w /workspace \
+  dustynv/vllm:r36.4.0 \
+  bash
+```
+
+| Flag | Purpose |
+|---|---|
+| `--runtime nvidia --gpus all` | Expose the Jetson GPU / unified memory to the container |
+| `--shm-size=4g` | Shared memory for PyTorch multiprocessing (vLLM spawns a worker process) |
+| `-v $(pwd):/workspace` | Mount the repo (and `data/`) into the container |
+
+### 4. Install Python dependencies inside the container
+
+```bash
+# Inside the container — /workspace is the repo root
+pip install scikit-learn pillow tqdm \
+    --index-url https://pypi.org/simple   # bypass Jetson-specific index for generic packages
+```
+
+`vllm` is pre-installed in the container; do **not** reinstall it via pip as it would overwrite the ARM64-compiled binary.
+
+### 5. Free GPU memory before running
+
+The Jetson desktop environment holds GPU memory. Switch to multi-user mode on the **host** (outside the container) first:
+
+```bash
+# Run on the Jetson host, not inside Docker
+sudo systemctl isolate multi-user.target
+```
+
+### 6. Run the benchmark
+
+```bash
+# Inside the container
+python3 run_benchmark.py \
+  --backend vllm \
+  --vllm-gpu-memory-utilization 0.85 \
+  --model-id Qwen/Qwen2.5-VL-3B-Instruct-AWQ \
+  --dataset-root data \
+  --prompt-profile driveact \
+  --frames-per-segment 3 \
+  --limit 50 \
+  --output benchmark_results.json
+```
+
+Model weights are downloaded from HuggingFace on first run and cached inside the container's `~/.cache/huggingface/`. To persist the cache across container restarts, add `-v $HOME/.cache/huggingface:/root/.cache/huggingface` to the `docker run` command.
+
 
 ### What the vLLM engine configures automatically
 
