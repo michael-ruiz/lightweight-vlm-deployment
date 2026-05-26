@@ -39,6 +39,7 @@ class VLLMEngine:
         confidence_fallback: dict[str, str] | None = None,
         vllm_gpu_memory_utilization: float = 0.9,
         multi_frame_mode: bool = False,
+        enforce_eager: bool = True,
     ) -> None:
         self.model_id = model_id
         self.monitor = monitor or HardwareMonitor()
@@ -47,6 +48,7 @@ class VLLMEngine:
         self.confidence_fallback = confidence_fallback or {}
         self.gpu_memory_utilization = vllm_gpu_memory_utilization
         self.multi_frame_mode = multi_frame_mode
+        self.enforce_eager = enforce_eager
 
         LOGGER.info(
             "Loading vLLM engine for %s (gpu_utilization=%.2f)",
@@ -75,7 +77,7 @@ class VLLMEngine:
             gpu_memory_utilization=self.gpu_memory_utilization,
             max_model_len=token_budget,
             limit_mm_per_prompt={"image": 3 if multi_frame_mode else 1, "video": 0},
-            enforce_eager=True,
+            enforce_eager=self.enforce_eager,
             dtype="half",
             max_num_batched_tokens=token_budget,
             max_num_seqs=1,
@@ -113,9 +115,9 @@ class VLLMEngine:
 
         # Request logprobs for our labels to do confidence gating
         sampling_params = SamplingParams(
-            max_tokens=5,
+            max_tokens=1,  # Single word classification — all signal is in logprobs[0], decode step is wasted time
             temperature=0.0,
-            logprobs=20,  # Grab top 20 logprobs to find our labels
+            logprobs=20,
         )
 
         # For vLLM multimodal chat: use image_url with base64-encoded JPEG
@@ -245,7 +247,7 @@ class VLLMEngine:
         from vllm import SamplingParams
 
         sampling_params = SamplingParams(
-            max_tokens=5,
+            max_tokens=1,  # Single word classification — all signal is in logprobs[0], decode step is wasted time
             temperature=0.0,
             logprobs=20,
         )

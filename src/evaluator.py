@@ -146,6 +146,7 @@ class BenchmarkEvaluator:
         engine_dir: str | None = None,
         vllm_gpu_memory_utilization: float = 0.9,
         multi_frame_mode: str = "majority-vote",
+        enforce_eager: bool = True,
     ) -> None:
         self.dataset_root = Path(dataset_root)
         self.model_id = model_id
@@ -166,6 +167,7 @@ class BenchmarkEvaluator:
         self.engine_dir = engine_dir
         self.vllm_gpu_memory_utilization = vllm_gpu_memory_utilization
         self.multi_frame_mode = multi_frame_mode
+        self.enforce_eager = enforce_eager
         self.monitor = HardwareMonitor()
 
     def run(self) -> dict[str, Any]:
@@ -205,6 +207,7 @@ class BenchmarkEvaluator:
                 confidence_fallback=self.confidence_fallback,
                 vllm_gpu_memory_utilization=self.vllm_gpu_memory_utilization,
                 multi_frame_mode=(self.multi_frame_mode == "single-call"),
+                enforce_eager=self.enforce_eager,
             )
         else:
             engine = VLMEngine(

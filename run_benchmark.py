@@ -118,6 +118,16 @@ def parse_args() -> argparse.Namespace:
             "'single-call' sends all frames in one message for holistic reasoning (vLLM only)."
         ),
     )
+    parser.add_argument(
+        "--no-enforce-eager",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable enforce_eager to allow vLLM CUDA graph capture (20-40%% faster, "
+            "but risks NvMap contiguous-allocation failures on Jetson). "
+            "Default: enforce_eager=True (safe for Jetson)."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"))
     return parser.parse_args()
 
@@ -163,6 +173,7 @@ def main() -> None:
         engine_dir=args.engine_dir,
         vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
         multi_frame_mode=args.multi_frame_mode,
+        enforce_eager=not args.no_enforce_eager,
     )
     try:
         report = evaluator.run()
