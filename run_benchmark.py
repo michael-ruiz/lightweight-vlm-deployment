@@ -168,7 +168,7 @@ def main() -> None:
         dataset_root=args.dataset_root,
         model_id=args.model_id,
         output_path=args.output,
-        image_size=(args.image_size, args.image_size),
+        image_size=(args.image_resolution, args.image_resolution),
         limit=args.limit,
         prompt=prompt,
         labels=labels,
@@ -186,7 +186,6 @@ def main() -> None:
         multi_frame_mode=args.multi_frame_mode,
         enforce_eager=not args.no_enforce_eager,
         lora_dir=args.lora_dir,
-        image_size=(args.image_resolution, args.image_resolution),
     )
     try:
         report = evaluator.run()
