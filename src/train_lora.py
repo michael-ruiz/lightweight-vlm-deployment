@@ -130,8 +130,6 @@ def main() -> None:
         logging_steps=5,
         save_strategy="epoch",
         bf16=True,
-        max_seq_length=2048, # Enough for image tokens + prompt
-        dataset_text_field="text",
         remove_unused_columns=False,
     )
     
@@ -164,6 +162,8 @@ def main() -> None:
         train_dataset=dataset,
         data_collator=data_collator,
         tokenizer=processor.tokenizer,
+        max_seq_length=2048,
+        dataset_text_field="text",
     )
     
     trainer.train()
