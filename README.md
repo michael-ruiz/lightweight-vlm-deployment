@@ -12,7 +12,7 @@ Supported models include [Qwen2.5-VL-3B](https://huggingface.co/Qwen/Qwen2.5-VL-
 
 | Model | Backend | Resolution | Frames | Accuracy | Precision | FPS | VRAM |
 |---|---|---|---|---|---|---|---|
-| Qwen2.5-VL-3B-AWQ | vLLM V0 | 504 × 504 | 3 | **54%** | **61%** | **1.15** | 3 582 MB |
+| Qwen2.5-VL-3B-AWQ | vLLM V0 | 532 × 532 | 3 | **54%** | **61%** | **1.39** | 3 582 MB |
 | Qwen2.5-VL-3B-AWQ | vLLM V0 | 336 × 336 | 1 | 46% | 43% | 1.39 | 3 544 MB |
 
 ### Desktop PC — RTX 4090, PyTorch BF16
