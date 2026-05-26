@@ -161,7 +161,7 @@ def main() -> None:
         args=training_args,
         train_dataset=dataset,
         data_collator=data_collator,
-        tokenizer=processor.tokenizer,
+        processing_class=processor,
         max_seq_length=2048,
         dataset_text_field="text",
     )
